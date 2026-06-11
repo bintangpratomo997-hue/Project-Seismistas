@@ -718,7 +718,10 @@ def update_peta(tahun_range, filter_mag, filter_ked, layers):
     # Setiap grup (Dangkal/Menengah/Dalam) menjadi trace terpisah
     # sehingga muncul di legenda dan bisa dimatikan secara individual
     if "episenter" in layers and len(df) > 0:
-        warna_ked = {"Dangkal": "#E69F00", "Menengah": "#56B4E9", "Dalam": "#009E73"}
+        # Palet cerah & kontras tinggi, mengikuti gradien kedalaman
+        # (dangkal = merah/panas → dalam = ungu/dingin) agar mudah dibedakan
+        # di atas peta dasar yang terang.
+        warna_ked = {"Dangkal": "#FF1744", "Menengah": "#FF9100", "Dalam": "#6200EA"}
         for ked, grp in df.groupby("kategori_kedalaman"):
             fig.add_trace(go.Scattermapbox(
                 lat=grp["lat"], lon=grp["lon"],
@@ -727,7 +730,7 @@ def update_peta(tahun_range, filter_mag, filter_ked, layers):
                     # Ukuran marker proporsional dengan magnitudo (clip 2–9)
                     size=grp["nilai_magnitude"].clip(2, 9) * 1.5,
                     color=warna_ked.get(ked, "gray"),
-                    opacity=0.7
+                    opacity=0.85
                 ),
                 name=f"Kedalaman: {ked}",
                 customdata=grp[["tgl","ot","nilai_magnitude",
