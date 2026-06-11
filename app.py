@@ -43,6 +43,8 @@ pio.templates["plotly_white"].layout.colorway = [
 # Scikit-learn: algoritma DBSCAN dan metrik evaluasi kluster
 from sklearn.cluster import DBSCAN
 from sklearn.metrics import silhouette_score, davies_bouldin_score
+# SciPy: Kernel Density Estimation (KDE) Gaussian dengan bandwidth Silverman
+from scipy.stats import gaussian_kde
 
 # ─────────────────────────────────────────────
 # KONFIGURASI
@@ -693,7 +695,7 @@ def update_peta(tahun_range, filter_mag, filter_ked, layers):
     Callback reaktif Halaman Peta.
     Dipicu oleh perubahan salah satu dari empat filter.
     Menggabungkan hingga tiga layer pada satu objek go.Figure:
-      1. KDE Densitas (Densitymapbox) — heatmap intensitas
+      1. KDE (scipy.stats.gaussian_kde, bandwidth Silverman) — heatmap densitas
       2. Episenter (Scattermapbox per grup kedalaman) — titik berlapis
       3. Patahan Aktif (Scattermapbox mode="lines") — garis patahan
     """
@@ -720,31 +722,62 @@ def update_peta(tahun_range, filter_mag, filter_ked, layers):
 
     fig = go.Figure()
 
-    # ── Layer 1: KDE (Kernel Density Estimation / Heatmap Densitas) ──────
-    # Menampilkan konsentrasi episenter sebagai gradasi warna merah
-    if "kde" in layers and len(df) > 0:
-        fig.add_trace(go.Densitymapbox(
-            lat=df["lat"], lon=df["lon"],
-            z=df["nilai_magnitude"],   # intensitas warna berdasarkan magnitudo
-            radius=15, opacity=0.6,
-            colorscale="Reds",
-            name="KDE Densitas",
-            showscale=True,
-            colorbar=dict(
-                orientation="h",
-                title=dict(text="Densitas Magnitudo", side="top", font=dict(size=11)),
-                thickness=12,
-                len=0.25,
-                x=0.03,
-                xanchor="left",
-                y=0.03,
-                yanchor="bottom",
-                bgcolor="rgba(255,255,255,0.85)",
-                bordercolor="gray",
-                borderwidth=1,
-                tickfont=dict(size=10),
-            )
-        ))
+    # ── Layer 1: KDE asli — scipy.stats.gaussian_kde (bandwidth Silverman) ──
+    # Sesuai metodologi (Subbab 3.4.2): KDE memetakan densitas spasial
+    # SELURUH episenter pada rentang tahun terpilih — independen dari filter
+    # magnitudo/kedalaman (yang hanya berlaku untuk titik episenter). Densitas
+    # diestimasi dengan kernel Gaussian bivariat lalu dievaluasi pada grid
+    # wilayah Indonesia, kemudian dirender sebagai heatmap.
+    if "kde" in layers:
+        # Data KDE difilter HANYA berdasarkan tahun (bukan magnitudo/kedalaman)
+        df_kde = df_gempa[
+            (df_gempa["tahun"] >= tahun_range[0]) &
+            (df_gempa["tahun"] <= tahun_range[1])
+        ]
+        # Subsampel untuk performa — permukaan densitas tetap representatif
+        if len(df_kde) > 15000:
+            df_kde = df_kde.sample(15000, random_state=42)
+
+        if len(df_kde) >= 10:
+            try:
+                # Matriks 2×n koordinat (lon, lat) → input gaussian_kde
+                coords = np.vstack([df_kde["lon"].values, df_kde["lat"].values])
+                # bw_method="silverman": Silverman's rule of thumb (sesuai skripsi)
+                kde = gaussian_kde(coords, bw_method="silverman")
+
+                # Grid evaluasi atas bounding box Indonesia (~120×90 sel)
+                gx = np.linspace(94.0, 141.5, 120)
+                gy = np.linspace(-11.5, 8.5, 90)
+                MX, MY = np.meshgrid(gx, gy)
+                dens = kde(np.vstack([MX.ravel(), MY.ravel()]))
+
+                dmax = dens.max()
+                if dmax > 0:
+                    dn = dens / dmax                 # normalisasi 0–1
+                    mask = dn > 0.05                 # hanya hotspot bermakna
+                    fig.add_trace(go.Densitymapbox(
+                        lat=MY.ravel()[mask],
+                        lon=MX.ravel()[mask],
+                        z=dn[mask],
+                        radius=22, opacity=0.6,
+                        colorscale="Reds",
+                        name="KDE Densitas",
+                        showscale=True,
+                        colorbar=dict(
+                            orientation="h",
+                            title=dict(text="Densitas Episenter (KDE)",
+                                       side="top", font=dict(size=11)),
+                            thickness=12, len=0.25,
+                            x=0.03, xanchor="left",
+                            y=0.03, yanchor="bottom",
+                            bgcolor="rgba(255,255,255,0.85)",
+                            bordercolor="gray", borderwidth=1,
+                            tickfont=dict(size=10),
+                        )
+                    ))
+            except Exception:
+                # Bila kovarian singular / data terlalu sedikit → lewati KDE
+                pass
 
     # ── Layer 2: Episenter — diplot per grup kedalaman ───────────────────
     # Setiap grup (Dangkal/Menengah/Dalam) menjadi trace terpisah

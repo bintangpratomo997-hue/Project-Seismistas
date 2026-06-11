@@ -6,6 +6,7 @@ geopandas==1.0.1
 psycopg2-binary==2.9.9
 sqlalchemy==2.0.30
 scikit-learn==1.5.0
+scipy==1.14.1
 gunicorn==22.0.0
 numpy==2.1.0
 shapely==2.0.6
