@@ -370,11 +370,12 @@ def layout_peta():
                     dbc.CardHeader("⚙️ Filter Data"),
                     dbc.CardBody([
                         html.Label("Rentang Tahun:", className="fw-semibold small"),
-                        # Default ditampilkan: 5 tahun terakhir
+                        # Default ditampilkan: seluruh rentang tahun
                         dcc.RangeSlider(
                             id="peta-slider-tahun",
                             min=tahun_min, max=tahun_max,
-                            value=[2015, tahun_max],
+                            # Default: tampilkan seluruh rentang tahun yang tersedia
+                            value=[tahun_min, tahun_max],
                             # Panel samping sempit → label tiap 10 tahun + titik
                             # ujung (tahun_max) agar tidak saling menimpa.
                             marks={
