@@ -32,6 +32,14 @@ import dash_bootstrap_components as dbc   # Komponen UI bergaya Bootstrap
 # Plotly: membuat grafik interaktif (bar, pie, map, scatter, heatmap)
 import plotly.express as px
 import plotly.graph_objects as go
+import plotly.io as pio
+# Template grafik bersih & font modern (Inter) untuk seluruh chart
+pio.templates.default = "plotly_white"
+pio.templates["plotly_white"].layout.font.family = "Inter, system-ui, sans-serif"
+pio.templates["plotly_white"].layout.colorway = [
+    "#0d9488", "#f59e0b", "#ef4444", "#3b82f6",
+    "#8b5cf6", "#10b981", "#ec4899"
+]
 # Scikit-learn: algoritma DBSCAN dan metrik evaluasi kluster
 from sklearn.cluster import DBSCAN
 from sklearn.metrics import silhouette_score, davies_bouldin_score
@@ -162,7 +170,12 @@ print(f"  Patahan aktif: {len(gdf_aktif)} segmen")
 # dibuat secara dinamis (multi-page routing) sehingga belum ada saat startup.
 app = dash.Dash(
     __name__,
-    external_stylesheets=[dbc.themes.BOOTSTRAP],
+    external_stylesheets=[
+        dbc.themes.FLATLY,            # tema terang modern (aksen teal)
+        dbc.icons.FONT_AWESOME,       # ikon FontAwesome (navbar, kartu KPI)
+        # Font modern Inter dari Google Fonts
+        "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap",
+    ],
     suppress_callback_exceptions=True,
     title="Visual Analytics Seismisitas Indonesia"
 )
@@ -325,17 +338,35 @@ def layout_ikhtisar():
 
 def _kpi_card(judul, nilai, sub, warna):
     """
-    Helper untuk membuat kartu KPI seragam.
+    Helper untuk membuat kartu KPI seragam bergaya modern.
     judul: label metrik  |  nilai: angka utama  |  sub: keterangan kecil
-    warna: kelas Bootstrap ('primary', 'warning', dst.)
+    warna: kelas Bootstrap ('primary', 'warning', dst.) → menentukan aksen & ikon
     """
-    return dbc.Card([
-        dbc.CardBody([
-            html.H6(judul, className="text-muted small mb-1"),
-            html.H3(nilai, className=f"fw-bold text-{warna} mb-0"),
-            html.Small(sub, className="text-muted"),
-        ])
-    ], className="shadow-sm h-100")
+    # Ikon FontAwesome dipilih sesuai makna metrik (dipetakan via warna)
+    ikon = {
+        "primary": "fa-bolt",          # total kejadian
+        "warning": "fa-gauge-high",    # rata-rata magnitudo
+        "danger":  "fa-location-dot",  # provinsi paling aktif
+        "success": "fa-water",         # gempa dangkal
+    }.get(warna, "fa-circle-info")
+
+    return dbc.Card(
+        dbc.CardBody(
+            html.Div([
+                # Lingkaran ikon dengan warna aksen lembut
+                html.Div(
+                    html.I(className=f"fas {ikon}"),
+                    className=f"kpi-icon kpi-icon-{warna}"
+                ),
+                html.Div([
+                    html.H6(judul, className="kpi-title mb-1"),
+                    html.H3(nilai, className=f"kpi-value text-{warna} mb-0"),
+                    html.Small(sub, className="text-muted"),
+                ], className="ms-3"),
+            ], className="d-flex align-items-center")
+        ),
+        className=f"kpi-card kpi-card-{warna} h-100"
+    )
 
 
 # ═════════════════════════════════════════════
