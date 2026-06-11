@@ -283,7 +283,10 @@ def layout_ikhtisar():
                     id="slider-tahun",
                     min=tahun_min, max=tahun_max,
                     value=[tahun_min, tahun_max],
-                    marks={y: str(y) for y in range(tahun_min, tahun_max+1, 5)},
+                    marks={
+                        y: {"label": str(y), "style": {"fontSize": "11px"}}
+                        for y in range(tahun_min, tahun_max + 1, 5)
+                    },
                     tooltip={"placement": "bottom", "always_visible": False}
                 )
             ])
@@ -372,7 +375,17 @@ def layout_peta():
                             id="peta-slider-tahun",
                             min=tahun_min, max=tahun_max,
                             value=[2015, tahun_max],
-                            marks={y: str(y) for y in range(tahun_min, tahun_max+1, 5)},
+                            # Panel samping sempit → label tiap 10 tahun + titik
+                            # ujung (tahun_max) agar tidak saling menimpa.
+                            marks={
+                                **{
+                                    y: {"label": str(y),
+                                        "style": {"fontSize": "10px"}}
+                                    for y in range(tahun_min, tahun_max + 1, 10)
+                                },
+                                tahun_max: {"label": str(tahun_max),
+                                            "style": {"fontSize": "10px"}},
+                            },
                             tooltip={"placement": "bottom"}
                         ),
                         html.Hr(),
