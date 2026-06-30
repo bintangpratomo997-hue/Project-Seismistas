@@ -665,7 +665,34 @@ def layout_kluster():
                             dbc.CardBody(html.Div(id="kluster-karakter"))
                         ])
                     ])
-                ], className="mt-3")
+                ], className="mt-3"),
+
+                # ── Visualisasi per-kluster (Opsi A: dropdown pilih satu kluster) ──
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader("\U0001F50E Visualisasi Per-Kluster "
+                                           "(pilih satu kluster)"),
+                            dbc.CardBody([
+                                dbc.Row([
+                                    dbc.Col([
+                                        html.Label("Pilih Kluster:",
+                                                   className="fw-semibold mb-1"),
+                                        dcc.Dropdown(
+                                            id="pilih-kluster", clearable=False,
+                                            placeholder="Jalankan clustering lalu pilih kluster..."),
+                                    ], md=5),
+                                ], className="mb-2"),
+                                dbc.Row([
+                                    dbc.Col(dcc.Graph(id="kluster-individu-map",
+                                                      style={"height": "52vh"}), md=8),
+                                    dbc.Col(html.Div(id="kluster-individu-info"), md=4),
+                                ]),
+                            ])
+                        ])
+                    ])
+                ], className="mt-3"),
+                dcc.Store(id="store-kluster"),
             ]
         )
     ], fluid=True, className="py-3")
@@ -956,6 +983,9 @@ def update_peta(tahun_range, filter_mag, filter_ked, layers):
     Output("kluster-scatter", "figure"),   # scatter magnitudo vs kedalaman
     Output("kluster-box",     "figure"),   # boxplot distribusi atribut per kluster
     Output("kluster-karakter","children"), # tabel karakteristik tiap kluster
+    Output("pilih-kluster",   "options"),  # opsi dropdown per-kluster
+    Output("pilih-kluster",   "value"),    # nilai default dropdown
+    Output("store-kluster",   "data"),     # simpan hasil clustering utk per-kluster
     Input("btn-cluster",      "n_clicks"), # tombol 'Jalankan' sebagai trigger
     State("kluster-eps",          "value"),          # nilai ε (km)
     State("kluster-min-samples",  "value"),          # nilai min_samples
@@ -1243,7 +1273,118 @@ def update_kluster(n_clicks, eps_km, min_samp):
             className="text-muted"),
     ])
 
-    return fig_map, metrik, fig_bar, fig_scatter, fig_box, tabel_karakter
+    # ── Data untuk visualisasi per-kluster (Opsi A) ──
+    summary = {}
+    for l in unik:
+        g = dfk[dfk["label"] == l]
+        n = len(g)
+        thn = "-"
+        if "tahun" in g.columns and n:
+            vc = g[g["tahun"] <= 2025]["tahun"].value_counts()
+            if len(vc):
+                thn = f"{int(vc.idxmax())} (N={int(vc.max()):,})"
+        summary[str(l)] = {
+            "klabel": _klabel(l),
+            "warna":  warna_map[_klabel(l)],
+            "n":      int(n),
+            "pct":    round(n / total * 100, 1) if total else 0,
+            "wil":    (NAMA_ZONA.get(l, "-") if aligned else "-"),
+            "intp":   (TEKTONIK.get(l, "-") if aligned else "-"),
+            "mag":    round(float(g["nilai_magnitude"].mean()), 2) if n else 0,
+            "depth":  round(float(g["nilai_kedalaman"].mean()), 1) if n else 0,
+            "dist":   round(float(g["jarak_patahan_km"].mean()), 1) if n else 0,
+            "lat_c":  round(float(g["lat"].mean()), 3) if n else 0,
+            "lon_c":  round(float(g["lon"].mean()), 3) if n else 0,
+            "thn":    thn,
+        }
+    dfs = dfk.sample(min(12000, len(dfk)), random_state=42)
+    store = {
+        "lat":   [round(float(v), 4) for v in dfs["lat"]],
+        "lon":   [round(float(v), 4) for v in dfs["lon"]],
+        "label": [int(v) for v in dfs["label"]],
+        "summary": summary,
+    }
+    opsi = [{"label": _klabel(l), "value": int(l)} for l in unik]
+    nilai_default = int(unik[0]) if unik else None
+
+    return (fig_map, metrik, fig_bar, fig_scatter, fig_box, tabel_karakter,
+            opsi, nilai_default, store)
+
+
+# ═════════════════════════════════════════════
+# CALLBACK — VISUALISASI PER-KLUSTER (Opsi A)
+# ═════════════════════════════════════════════
+@app.callback(
+    Output("kluster-individu-map",  "figure"),
+    Output("kluster-individu-info", "children"),
+    Input("pilih-kluster", "value"),
+    State("store-kluster", "data"),
+)
+def tampil_kluster_individu(sel, store):
+    """Menampilkan peta + profil untuk SATU kluster terpilih (di-zoom ke wilayahnya).
+
+    Membaca hasil clustering dari dcc.Store sehingga tidak perlu menjalankan
+    ulang DBSCAN setiap kali dropdown berubah.
+    """
+    import math
+    kosong = go.Figure()
+    kosong.update_layout(
+        mapbox=dict(style=MAPBOX_STYLE, center=dict(lat=-2.5, lon=118), zoom=3.5),
+        margin=dict(l=0, r=0, t=0, b=0))
+    if not store or sel is None:
+        return kosong, html.Div("Jalankan clustering lalu pilih kluster untuk "
+                                "melihat detailnya.", className="text-muted")
+
+    lab = store["label"]; lat = store["lat"]; lon = store["lon"]
+    xs = [lat[i] for i in range(len(lab)) if lab[i] == sel]
+    ys = [lon[i] for i in range(len(lab)) if lab[i] == sel]
+    info = store["summary"].get(str(sel), {})
+    warna = info.get("warna", "#1f6fb2")
+
+    if not xs:
+        return kosong, html.Div("Tidak ada titik untuk kluster ini.",
+                                className="text-muted")
+
+    # hitung zoom dari rentang sebaran titik kluster
+    span = max(max(xs) - min(xs), max(ys) - min(ys), 0.5)
+    zoom = max(3.2, min(7.0, 8.4 - math.log2(span)))
+
+    fig = go.Figure(go.Scattermapbox(
+        lat=xs, lon=ys, mode="markers",
+        marker=dict(size=6, color=warna, opacity=0.7),
+        name=info.get("klabel", f"Kluster {sel}"),
+        hovertemplate="Lat %{lat:.2f}, Lon %{lon:.2f}<extra></extra>",
+    ))
+    # tanda sentroid
+    fig.add_trace(go.Scattermapbox(
+        lat=[info.get("lat_c")], lon=[info.get("lon_c")], mode="markers",
+        marker=dict(size=16, color="black", symbol="star"),
+        name="Sentroid", hoverinfo="skip"))
+    fig.update_layout(
+        mapbox=dict(style=MAPBOX_STYLE,
+                    center=dict(lat=info.get("lat_c", -2.5),
+                                lon=info.get("lon_c", 118)), zoom=zoom),
+        margin=dict(l=0, r=0, t=0, b=0), showlegend=False)
+
+    def item(k, v):
+        return dbc.ListGroupItem([html.Span(k, className="fw-semibold"),
+                                  html.Span(str(v), className="float-end")])
+    info_card = html.Div([
+        html.H5(info.get("klabel", f"Kluster {sel}"),
+                style={"color": warna, "fontWeight": "700"}),
+        dbc.ListGroup([
+            item("Jumlah gempa", f"{info.get('n'):,} ({info.get('pct')}%)"),
+            item("Wilayah", info.get("wil", "-")),
+            item("Sentroid (Lat; Lon)", f"({info.get('lat_c')}; {info.get('lon_c')})"),
+            item("Rata-rata magnitudo", f"{info.get('mag')} Mw"),
+            item("Rata-rata kedalaman", f"{info.get('depth')} km"),
+            item("Rata-rata jarak ke patahan", f"{info.get('dist')} km"),
+            item("Tahun puncak", info.get("thn", "-")),
+        ], flush=True, className="mb-2"),
+        html.Small("Interpretasi tektonik: " + str(info.get("intp", "-")),
+                   className="text-muted"),
+    ])
+    return fig, info_card
 
 
 # ─────────────────────────────────────────────
