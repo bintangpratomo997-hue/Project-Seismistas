@@ -70,11 +70,57 @@ EPS_DEFAULT        = 200_000   # 200 km dalam meter
 # min_samples: minimum titik dalam radius eps untuk membentuk inti kluster
 MIN_SAMPLES_DEFAULT = 1000
 
-# Palet warna untuk kluster — dipilih ramah buta warna (Wong color-blind palette)
+# Palet warna untuk kluster — DISAMAKAN dengan buku skripsi (Gambar 4.6-4.8).
+# Indeks 0..3 = Kluster 0..3 versi buku:
+#   K0 Sulut-Maluku = biru, K1 Papua = merah, K2 Sumatra = hijau, K3 Nusa Tenggara = ungu.
+# Indeks 4+ adalah warna cadangan jika parameter menghasilkan >4 kluster.
 WARNA_KLUSTER = [
-    "#E69F00", "#56B4E9", "#009E73",
-    "#F0E442", "#0072B2", "#D55E00", "#CC79A7"
+    "#1f6fb2", "#c0392b", "#27864f", "#7d3c98",
+    "#0072B2", "#D55E00", "#CC79A7"
 ]
+
+# Zona referensi (sentroid hasil clustering final pada buku). Dipakai untuk
+# menyelaraskan NOMOR dan WARNA kluster pada dashboard dengan buku, karena
+# urutan label yang dihasilkan DBSCAN dapat berbeda antar-run.
+ZONA_REFERENSI = [
+    {"nomor": 0, "nama": "Sulut-Maluku",  "lat": -1.297, "lon": 127.351, "warna": "#1f6fb2"},
+    {"nomor": 1, "nama": "Papua",          "lat": -2.661, "lon": 137.060, "warna": "#c0392b"},
+    {"nomor": 2, "nama": "Sumatra",        "lat": -1.495, "lon": 100.432, "warna": "#27864f"},
+    {"nomor": 3, "nama": "Nusa Tenggara",  "lat": -8.960, "lon": 118.959, "warna": "#7d3c98"},
+]
+
+
+def selaraskan_label_buku(df_pts, labels):
+    """Petakan ulang nomor label DBSCAN agar konsisten dengan buku skripsi.
+
+    Tiap kluster dicocokkan ke zona referensi terdekat berdasarkan sentroid
+    (rata-rata lat/lon), sehingga nomor & warna kluster pada dashboard selalu
+    sama dengan Gambar 4.6-4.8 di buku - tidak bergantung pada urutan label
+    yang diberikan DBSCAN. Bila jumlah kluster != jumlah zona referensi
+    (mis. parameter non-default), label dikembalikan apa adanya (fallback aman).
+    """
+    labels = np.asarray(labels)
+    uniq = sorted(l for l in set(labels.tolist()) if l >= 0)
+    if len(uniq) != len(ZONA_REFERENSI):
+        return labels  # fallback: pertahankan label asli
+    lat = np.asarray(df_pts["lat"]); lon = np.asarray(df_pts["lon"])
+    pasangan = []
+    for l in uniq:
+        msk = labels == l
+        clat, clon = lat[msk].mean(), lon[msk].mean()
+        for zi, z in enumerate(ZONA_REFERENSI):
+            pasangan.append(((clat - z["lat"])**2 + (clon - z["lon"])**2, l, zi))
+    pasangan.sort()
+    peta, lbl_dipakai, zona_dipakai = {}, set(), set()
+    for _, l, zi in pasangan:
+        if l in lbl_dipakai or zi in zona_dipakai:
+            continue
+        peta[l] = ZONA_REFERENSI[zi]["nomor"]
+        lbl_dipakai.add(l); zona_dipakai.add(zi)
+    baru = labels.copy()
+    for l in uniq:
+        baru[labels == l] = peta[l]
+    return baru
 
 # ─────────────────────────────────────────────
 # KONEKSI DATABASE
@@ -919,6 +965,9 @@ def update_kluster(n_clicks, eps_km, min_samp):
                     algorithm="ball_tree", n_jobs=-1)
     labels = db.fit_predict(X)  # label -1 berarti noise (tidak masuk kluster mana pun)
 
+    # Selaraskan nomor & warna kluster dengan buku skripsi (berdasarkan sentroid zona).
+    labels = selaraskan_label_buku(df_gempa, labels)
+
     # Hitung statistik dasar hasil kluster
     n_kluster = len(set(labels)) - (1 if -1 in labels else 0)  # kecualikan noise
     n_noise   = int(np.sum(labels == -1))
@@ -1019,7 +1068,8 @@ def update_kluster(n_clicks, eps_km, min_samp):
     fig_bar = px.bar(
         cnt, x="Kluster", y="Jumlah",
         color="Kluster",
-        color_discrete_sequence=WARNA_KLUSTER,
+        color_discrete_map=warna_map,
+        category_orders={"Kluster": [f"Kluster {l}" for l in unik]},
         labels={"Jumlah": "N Gempa"}
     )
     fig_bar.update_layout(
