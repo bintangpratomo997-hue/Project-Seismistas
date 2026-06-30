@@ -142,4 +142,4 @@ Program Studi Sistem Informasi — Universitas Tarumanagara
 
 ---
 
-> Repositori ini merupakan artefak penelitian akademik. Kontribusi, masukan, dan pertanyaan dipersilakan melalui *Issues*.
+> Repositori ini merupakan artefak penelitian akademik.
