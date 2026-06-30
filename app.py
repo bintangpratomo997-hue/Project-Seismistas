@@ -84,10 +84,14 @@ WARNA_KLUSTER = [
 # menyelaraskan NOMOR dan WARNA kluster pada dashboard dengan buku, karena
 # urutan label yang dihasilkan DBSCAN dapat berbeda antar-run.
 ZONA_REFERENSI = [
-    {"nomor": 0, "nama": "Sulut-Maluku",  "lat": -1.297, "lon": 127.351, "warna": "#1f6fb2"},
-    {"nomor": 1, "nama": "Papua",          "lat": -2.661, "lon": 137.060, "warna": "#c0392b"},
-    {"nomor": 2, "nama": "Sumatra",        "lat": -1.495, "lon": 100.432, "warna": "#27864f"},
-    {"nomor": 3, "nama": "Nusa Tenggara",  "lat": -8.960, "lon": 118.959, "warna": "#7d3c98"},
+    {"nomor": 0, "nama": "Sulut-Maluku",  "lat": -1.297, "lon": 127.351, "warna": "#1f6fb2",
+     "tektonik": "Zona kolisi & subduksi ganda Laut Maluku; kedalaman menengah dominan"},
+    {"nomor": 1, "nama": "Papua",          "lat": -2.661, "lon": 137.060, "warna": "#c0392b",
+     "tektonik": "Sesar Sorong & tumbukan Lempeng Pasifik; dominasi gempa dangkal"},
+    {"nomor": 2, "nama": "Sumatra",        "lat": -1.495, "lon": 100.432, "warna": "#27864f",
+     "tektonik": "Zona megathrust Sunda & Sesar Sumatra; gempa dangkal-menengah"},
+    {"nomor": 3, "nama": "Nusa Tenggara",  "lat": -8.960, "lon": 118.959, "warna": "#7d3c98",
+     "tektonik": "Subduksi Busur Banda & Sesar Naik Flores; kedalaman lebar, jauh dari patahan darat"},
 ]
 
 # Peta nomor kluster -> nama wilayah (untuk keterangan pada legenda/grafik).
@@ -648,6 +652,19 @@ def layout_kluster():
                             )
                         ])
                     ])
+                ], className="mt-3"),
+
+                # Tabel karakteristik per kluster (dinamis, gaya Tabel 4.3 buku)
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader(
+                                "\U0001F4CB Karakteristik Tiap Kluster "
+                                "(ringkasan dinamis per zona)"
+                            ),
+                            dbc.CardBody(html.Div(id="kluster-karakter"))
+                        ])
+                    ])
                 ], className="mt-3")
             ]
         )
@@ -938,6 +955,7 @@ def update_peta(tahun_range, filter_mag, filter_ked, layers):
     Output("kluster-bar",     "figure"),   # bar chart jumlah per kluster
     Output("kluster-scatter", "figure"),   # scatter magnitudo vs kedalaman
     Output("kluster-box",     "figure"),   # boxplot distribusi atribut per kluster
+    Output("kluster-karakter","children"), # tabel karakteristik tiap kluster
     Input("btn-cluster",      "n_clicks"), # tombol 'Jalankan' sebagai trigger
     State("kluster-eps",          "value"),          # nilai ε (km)
     State("kluster-min-samples",  "value"),          # nilai min_samples
@@ -1176,7 +1194,56 @@ def update_kluster(n_clicks, eps_km, min_samp):
     )
     fig_box.update_xaxes(showticklabels=False)
 
-    return fig_map, metrik, fig_bar, fig_scatter, fig_box
+    # ── Langkah 4f: Tabel Karakteristik per Kluster (dinamis, gaya Tabel 4.3 buku) ──
+    # Statistik kuantitatif dihitung real-time; Wilayah & Interpretasi Tektonik
+    # hanya ditampilkan bila hasil selaras dengan 4 zona buku (parameter default).
+    TEKTONIK = {z["nomor"]: z.get("tektonik", "-") for z in ZONA_REFERENSI}
+    dfk = df_plot[df_plot["label"] >= 0]
+    total = len(dfk)
+    header = html.Thead(html.Tr([
+        html.Th("Kluster"), html.Th("Wilayah"), html.Th("N"), html.Th("%"),
+        html.Th("Magnitudo (Mw)"), html.Th("Kedalaman (km)"),
+        html.Th("Jarak Patahan (km)"), html.Th("Tahun Puncak"),
+        html.Th("Interpretasi Tektonik"),
+    ]))
+    baris = []
+    for l in unik:
+        g = dfk[dfk["label"] == l]
+        n = len(g)
+        pct = (n / total * 100) if total else 0
+        thn = "-"
+        if "tahun" in g.columns and n:
+            vc = g[g["tahun"] <= 2025]["tahun"].value_counts()
+            if len(vc):
+                thn = f"{int(vc.idxmax())} (N={int(vc.max()):,})"
+        wil = NAMA_ZONA.get(l, "-") if aligned else "-"
+        intp = TEKTONIK.get(l, "-") if aligned else "-"
+        warna = warna_map[_klabel(l)]
+        baris.append(html.Tr([
+            html.Td(html.Span(f"Kluster {l}",
+                              style={"color": warna, "fontWeight": "700"})),
+            html.Td(wil),
+            html.Td(f"{n:,}"),
+            html.Td(f"{pct:.1f}%"),
+            html.Td(f"{g['nilai_magnitude'].mean():.2f}"),
+            html.Td(f"{g['nilai_kedalaman'].mean():.1f}"),
+            html.Td(f"{g['jarak_patahan_km'].mean():.1f}"),
+            html.Td(thn),
+            html.Td(intp, style={"fontSize": "0.82rem"}),
+        ]))
+    tabel_karakter = html.Div([
+        dbc.Table([header, html.Tbody(baris)],
+                  bordered=True, hover=True, striped=True,
+                  responsive=True, size="sm", className="mb-2"),
+        html.Small(
+            "Nilai magnitudo, kedalaman, dan jarak adalah rata-rata (mean) per kluster, "
+            "dihitung real-time. Kolom Wilayah & Interpretasi Tektonik hanya muncul saat "
+            "hasil = 4 kluster yang selaras dengan zona buku (parameter default \u03B5 = 200 km, "
+            "min_samples = 1.000).",
+            className="text-muted"),
+    ])
+
+    return fig_map, metrik, fig_bar, fig_scatter, fig_box, tabel_karakter
 
 
 # ─────────────────────────────────────────────
