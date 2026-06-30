@@ -3,7 +3,7 @@
 Sistem **business intelligence & visual analytics** untuk menganalisis dan memvisualisasikan data seismisitas (kegempaan) Indonesia secara geospasial. Aplikasi mengintegrasikan katalog gempa BMKG dengan data patahan aktif PSG/Badan Geologi ESDM, lalu menyajikannya melalui dashboard interaktif berbasis **Plotly Dash** yang mencakup peta interaktif, estimasi kepadatan (KDE), dan analisis klaster spasial (DBSCAN).
 
 > Dikembangkan sebagai bagian dari skripsi S1 Sistem Informasi, Universitas Tarumanagara.
-> **Demo:** https://project-seismistas-production.up.railway.app
+> **Website:** https://project-seismistas-production.up.railway.app
 
 ---
 
