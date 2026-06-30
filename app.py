@@ -1048,7 +1048,15 @@ def update_kluster(n_clicks, eps_km, min_samp):
     fig_map.update_traces(marker=dict(size=5, opacity=0.7))
     fig_map.update_layout(
         margin=dict(l=0, r=0, t=0, b=0),
-        legend=dict(font=dict(size=11))
+        # Legenda dipindah KE DALAM peta (overlay kiri-atas) agar peta memakai
+        # lebar penuh dan tidak terdorong ke kiri.
+        legend=dict(
+            title_text="Kluster",
+            font=dict(size=11),
+            bgcolor="rgba(255,255,255,0.85)",
+            bordercolor="rgba(0,0,0,0.2)", borderwidth=1,
+            x=0.012, y=0.985, xanchor="left", yanchor="top"
+        )
     )
 
     # ── Langkah 4b: Kartu Metrik Evaluasi ───────────────────────────────
@@ -1096,16 +1104,21 @@ def update_kluster(n_clicks, eps_km, min_samp):
     cnt = df_plot[df_plot["label"] >= 0]["kluster_str"].value_counts().reset_index()
     cnt.columns = ["Kluster", "Jumlah"]
     fig_bar = px.bar(
-        cnt, x="Kluster", y="Jumlah",
+        cnt, x="Jumlah", y="Kluster", orientation="h",
         color="Kluster",
         color_discrete_map=warna_map,
-        category_orders={"Kluster": [_klabel(l) for l in unik]},
-        labels={"Jumlah": "N Gempa"}
+        category_orders={"Kluster": [_klabel(l) for l in reversed(unik)]},
+        labels={"Jumlah": "N Gempa", "Kluster": ""},
+        text="Jumlah",
     )
+    fig_bar.update_traces(textposition="outside", cliponaxis=False,
+                          texttemplate="%{x:,}")
     fig_bar.update_layout(
         showlegend=False,
-        margin=dict(l=5, r=5, t=5, b=5),
-        plot_bgcolor="white", paper_bgcolor="white"
+        margin=dict(l=5, r=35, t=10, b=5),
+        plot_bgcolor="white", paper_bgcolor="white",
+        yaxis=dict(tickfont=dict(size=10)),
+        xaxis=dict(showgrid=True, gridcolor="#eee")
     )
 
     # ── Langkah 4d: Scatter Plot Magnitudo vs Kedalaman ──────────────────
@@ -1149,8 +1162,10 @@ def update_kluster(n_clicks, eps_km, min_samp):
             fig_box.add_trace(
                 go.Box(y=dfb[dfb["label"] == l][col], name=nm,
                        legendgroup=nm, showlegend=(ci == 1),
-                       marker_color=warna_map[nm], boxmean=True,
-                       line=dict(width=1.2), boxpoints=False),
+                       line=dict(color=warna_map[nm], width=1.4),
+                       fillcolor=warna_map[nm], opacity=0.65,
+                       marker=dict(color="#7f7f7f", size=2, opacity=0.25),
+                       boxmean=True, boxpoints="outliers"),
                 row=1, col=ci
             )
     fig_box.update_layout(
