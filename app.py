@@ -32,6 +32,7 @@ import dash_bootstrap_components as dbc   # Komponen UI bergaya Bootstrap
 # Plotly: membuat grafik interaktif (bar, pie, map, scatter, heatmap)
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import plotly.io as pio
 # Template grafik bersih & font modern (Inter) untuk seluruh chart
 pio.templates.default = "plotly_white"
@@ -88,6 +89,9 @@ ZONA_REFERENSI = [
     {"nomor": 2, "nama": "Sumatra",        "lat": -1.495, "lon": 100.432, "warna": "#27864f"},
     {"nomor": 3, "nama": "Nusa Tenggara",  "lat": -8.960, "lon": 118.959, "warna": "#7d3c98"},
 ]
+
+# Peta nomor kluster -> nama wilayah (untuk keterangan pada legenda/grafik).
+NAMA_ZONA = {z["nomor"]: z["nama"] for z in ZONA_REFERENSI}
 
 
 def selaraskan_label_buku(df_pts, labels):
@@ -628,7 +632,23 @@ def layout_kluster():
                             )
                         ])
                     ])
-                ])
+                ]),
+
+                # Boxplot distribusi atribut per kluster (gaya Gambar 4.6 buku)
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader(
+                                "📈 Distribusi Atribut Gempa per Kluster "
+                                "(boxplot: magnitudo, kedalaman, jarak ke patahan)"
+                            ),
+                            dbc.CardBody(
+                                dcc.Graph(id="kluster-box",
+                                          style={"height": "42vh"})
+                            )
+                        ])
+                    ])
+                ], className="mt-3")
             ]
         )
     ], fluid=True, className="py-3")
@@ -917,6 +937,7 @@ def update_peta(tahun_range, filter_mag, filter_ked, layers):
     Output("kluster-metrik",  "children"), # kartu metrik evaluasi
     Output("kluster-bar",     "figure"),   # bar chart jumlah per kluster
     Output("kluster-scatter", "figure"),   # scatter magnitudo vs kedalaman
+    Output("kluster-box",     "figure"),   # boxplot distribusi atribut per kluster
     Input("btn-cluster",      "n_clicks"), # tombol 'Jalankan' sebagai trigger
     State("kluster-eps",          "value"),          # nilai ε (km)
     State("kluster-min-samples",  "value"),          # nilai min_samples
@@ -988,17 +1009,26 @@ def update_kluster(n_clicks, eps_km, min_samp):
     # Tambahkan kolom label ke salinan dataframe untuk keperluan visualisasi
     df_plot = df_gempa.copy()
     df_plot["label"] = labels
-    df_plot["kluster_str"] = df_plot["label"].apply(
-        lambda x: "Noise" if x == -1 else f"Kluster {x}"
-    )
+    # Daftar nomor kluster & status keselarasan dengan zona buku (4 kluster).
+    unik = sorted([l for l in set(np.asarray(labels).tolist()) if l >= 0])
+    aligned = (len(unik) == len(ZONA_REFERENSI))
+
+    def _klabel(x):
+        """Label tampilan kluster; sertakan nama wilayah bila selaras dengan buku."""
+        if x == -1:
+            return "Noise"
+        if aligned and x in NAMA_ZONA:
+            return f"Kluster {x} — {NAMA_ZONA[x]}"
+        return f"Kluster {x}"
+
+    df_plot["kluster_str"] = df_plot["label"].apply(_klabel)
 
     # ── Langkah 4a: Peta Kluster ─────────────────────────────────────────
-    # Buat pemetaan warna: setiap kluster mendapat warna dari WARNA_KLUSTER,
-    # noise selalu abu-abu
+    # Pemetaan warna: warna buku per nomor kluster bila selaras; jika tidak, urut palet.
     warna_map = {}
-    unik = sorted([l for l in df_plot["label"].unique() if l >= 0])
     for i, l in enumerate(unik):
-        warna_map[f"Kluster {l}"] = WARNA_KLUSTER[i % len(WARNA_KLUSTER)]
+        idx = l if aligned else i
+        warna_map[_klabel(l)] = WARNA_KLUSTER[idx % len(WARNA_KLUSTER)]
     warna_map["Noise"] = "#cccccc"
 
     # Sampel untuk performa peta — seluruh data terlalu berat untuk browser
@@ -1069,7 +1099,7 @@ def update_kluster(n_clicks, eps_km, min_samp):
         cnt, x="Kluster", y="Jumlah",
         color="Kluster",
         color_discrete_map=warna_map,
-        category_orders={"Kluster": [f"Kluster {l}" for l in unik]},
+        category_orders={"Kluster": [_klabel(l) for l in unik]},
         labels={"Jumlah": "N Gempa"}
     )
     fig_bar.update_layout(
@@ -1103,7 +1133,35 @@ def update_kluster(n_clicks, eps_km, min_samp):
         legend=dict(font=dict(size=10))
     )
 
-    return fig_map, metrik, fig_bar, fig_scatter
+    # ── Langkah 4e: Boxplot distribusi atribut per kluster (gaya Gambar 4.6 buku) ──
+    dfb = df_plot[df_plot["label"] >= 0]
+    atribut = [
+        ("nilai_magnitude",  "Magnitudo (Mw)"),
+        ("nilai_kedalaman",  "Kedalaman (km)"),
+        ("jarak_patahan_km", "Jarak ke Patahan (km)"),
+    ]
+    fig_box = make_subplots(rows=1, cols=3,
+                            subplot_titles=[a[1] for a in atribut],
+                            horizontal_spacing=0.07)
+    for ci, (col, _judul) in enumerate(atribut, start=1):
+        for l in unik:
+            nm = _klabel(l)
+            fig_box.add_trace(
+                go.Box(y=dfb[dfb["label"] == l][col], name=nm,
+                       legendgroup=nm, showlegend=(ci == 1),
+                       marker_color=warna_map[nm], boxmean=True,
+                       line=dict(width=1.2), boxpoints=False),
+                row=1, col=ci
+            )
+    fig_box.update_layout(
+        boxmode="group", margin=dict(l=10, r=10, t=40, b=10),
+        plot_bgcolor="white", paper_bgcolor="white",
+        legend=dict(font=dict(size=10), orientation="h",
+                    yanchor="bottom", y=1.12, xanchor="left", x=0)
+    )
+    fig_box.update_xaxes(showticklabels=False)
+
+    return fig_map, metrik, fig_bar, fig_scatter, fig_box
 
 
 # ─────────────────────────────────────────────
